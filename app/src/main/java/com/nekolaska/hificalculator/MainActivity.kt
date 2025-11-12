@@ -42,6 +42,21 @@ import androidx.navigation.NavController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import android.content.Intent
+import android.net.Uri
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.material.icons.outlined.Code
+import androidx.compose.material.icons.outlined.Palette
+import androidx.compose.material.icons.outlined.Route
+import androidx.compose.material.icons.outlined.Tune
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.PathFillType.Companion.NonZero
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.StrokeCap.Companion.Butt
+import androidx.compose.ui.graphics.StrokeJoin.Companion.Miter
+import androidx.compose.ui.graphics.vector.path
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.sp
 import com.nekolaska.hificalculator.ui.theme.HiFiCalculatorTheme
 import kotlin.math.log10
 import kotlin.math.pow
@@ -242,41 +257,216 @@ fun MainScreen(navController: NavController, categories: List<CalculatorCategory
     }
 }
 
-// <-- 4. 创建一个全新的 Composable 函数作为"关于"页面 -->
+
+// 这是一个自定义的 GitHub 图标 ImageVector
+val GithubIcon: ImageVector
+    get() {
+        if (_github != null) {
+            return _github!!
+        }
+        _github = ImageVector.Builder(
+            name = "Github", defaultWidth = 24.dp, defaultHeight =
+                24.dp, viewportWidth = 98f, viewportHeight = 96f
+        ).path(
+            fill = SolidColor(Color.Black),
+            stroke = null,
+            strokeLineWidth = 0.0f,
+            strokeLineCap = Butt,
+            strokeLineJoin = Miter,
+            strokeLineMiter = 4.0f,
+            pathFillType = NonZero
+        ) {
+            moveTo(48.854f, 0.0f)
+            curveTo(21.839f, 0.0f, 0.0f, 22.0f, 0.0f, 49.217f)
+            curveTo(0.0f, 70.884f, 13.923f, 89.55f, 33.254f, 95.845f)
+            curveTo(35.694f, 96.286f, 36.53f, 94.837f, 36.53f, 93.613f)
+            verticalLineTo(86.34f)
+            curveTo(23.27f, 89.18f, 20.35f, 80.41f, 20.35f, 80.41f)
+            curveTo(18.22f, 75.03f, 14.82f, 72.82f, 14.82f, 72.82f)
+            curveTo(10.58f, 69.83f, 15.18f, 69.83f, 15.18f, 69.83f)
+            curveTo(19.82f, 70.15f, 22.55f, 74.83f, 22.55f, 74.83f)
+            curveTo(26.6f, 81.88f, 32.94f, 79.83f, 35.62f, 78.54f)
+            curveTo(36.0f, 75.83f, 37.13f, 73.85f, 38.27f, 72.9f)
+            curveTo(27.91f, 71.76f, 16.96f, 67.9f, 16.96f, 51.53f)
+            curveTo(16.96f, 45.9f, 18.84f, 41.5f, 22.0f, 38.09f)
+            curveTo(21.54f, 36.95f, 19.88f, 32.1f, 22.45f, 25.44f)
+            curveTo(22.45f, 25.44f, 26.2f, 24.28f, 36.33f, 31.03f)
+            curveTo(39.88f, 30.07f, 43.66f, 29.59f, 47.43f, 29.59f)
+            curveTo(51.2f, 29.59f, 54.98f, 30.07f, 58.53f, 31.03f)
+            curveTo(68.66f, 24.28f, 72.41f, 25.44f, 72.41f, 25.44f)
+            curveTo(74.98f, 32.1f, 73.32f, 36.95f, 72.86f, 38.09f)
+            curveTo(76.02f, 41.5f, 77.9f, 45.9f, 77.9f, 51.53f)
+            curveTo(77.9f, 67.93f, 66.95f, 71.75f, 56.57f, 72.88f)
+            curveTo(57.94f, 74.0f, 59.22f, 76.3f, 59.22f, 79.94f)
+            verticalLineTo(93.61f)
+            curveTo(59.22f, 94.83f, 60.06f, 96.28f, 62.51f, 95.84f)
+            curveTo(81.91f, 89.54f, 95.82f, 70.87f, 95.82f, 49.21f)
+            curveTo(95.82f, 22.0f, 73.98f, 0.0f, 48.85f, 0.0f)
+            close()
+        }.build()
+        return _github!!
+    }
+private var _github: ImageVector? = null
+
 @Composable
 fun AboutScreen(navController: NavController) {
+    val context = LocalContext.current
+    val githubUrl = "https://github.com/znzsofficial/HiFi-Calculator"
+
     CalculatorScreen(navController = navController, title = "关于") {
-        Column(
+        LazyColumn(
             modifier = Modifier.fillMaxWidth(),
-            horizontalAlignment = Alignment.Start,
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+            contentPadding = PaddingValues(bottom = 16.dp)
         ) {
-            Text(
-                text = "HiFi Calculator",
-                style = MaterialTheme.typography.headlineMedium,
-                fontWeight = FontWeight.Bold
-            )
-            Text(
-                text = "一款为高保真音频爱好者、DIY玩家和专业人士设计的计算工具。旨在提供一系列精确、便捷的计算功能，覆盖从基础电学到数字音频的多个方面。",
-                style = MaterialTheme.typography.bodyLarge
-            )
-            HorizontalDivider()
-            Text(
-                text = "开源与致谢",
-                style = MaterialTheme.typography.titleLarge
-            )
-            Text(
-                text = "本项目为开源软件，您可以在GitHub上找到源代码。核心UI基于Google的Jetpack Compose构建，使用了Material 3设计语言。",
-                style = MaterialTheme.typography.bodyMedium
-            )
-            Text(
-                text = "GitHub: github.com/NekoLaska/HiFiCalculator (示例链接)",
-                style = MaterialTheme.typography.bodyMedium
-            )
+            // App Info Section
+            item {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(
+                        imageVector = Icons.Outlined.Tune,
+                        contentDescription = "App Icon",
+                        modifier = Modifier.size(64.dp),
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "HiFi Calculator",
+                        style = MaterialTheme.typography.headlineMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = "Version 1.1.0",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            // Description Section
+            item {
+                SelectionContainer {
+                    Text(
+                        text = "一款为高保真音频爱好者、DIY玩家和专业人士设计的计算工具。",
+                        style = MaterialTheme.typography.bodyLarge,
+                        textAlign = TextAlign.Center
+                    )
+                }
+            }
+
+            // GitHub Link Card
+            item {
+                Card(
+                    onClick = {
+                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(githubUrl))
+                        context.startActivity(intent)
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = GithubIcon,
+                            contentDescription = "GitHub",
+                            modifier = Modifier.size(24.dp),
+                            tint = MaterialTheme.colorScheme.onSurface
+                        )
+                        Spacer(modifier = Modifier.width(16.dp))
+                        Text(
+                            text = "在GitHub上查看源码",
+                            style = MaterialTheme.typography.bodyLarge,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowForwardIos,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                }
+            }
+
+            // Acknowledgements Card
+            item {
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    SelectionContainer {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Text(
+                                text = "技术栈与致谢",
+                                style = MaterialTheme.typography.titleLarge
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Divider()
+                            Spacer(modifier = Modifier.height(16.dp))
+
+                            // Kotlin
+                            AcknowledgementItem(
+                                icon = Icons.Outlined.Code,
+                                title = "Kotlin",
+                                description = "由JetBrains开发的现代、强大且简洁的编程语言。"
+                            )
+                            Spacer(modifier = Modifier.height(16.dp))
+
+                            // Jetpack Compose
+                            AcknowledgementItem(
+                                icon = Icons.Outlined.Palette,
+                                title = "Jetpack Compose",
+                                description = "由Google打造的声明式UI工具包，用于构建原生Android界面。本项目使用了Compose Foundation、UI、Material 3以及Material Icons。"
+                            )
+                            Spacer(modifier = Modifier.height(16.dp))
+
+                            // AndroidX Navigation
+                            AcknowledgementItem(
+                                icon = Icons.Outlined.Route,
+                                title = "AndroidX Navigation",
+                                description = "用于实现应用内各计算器页面之间类型安全的导航。"
+                            )
+                            Spacer(modifier = Modifier.height(24.dp))
+
+                            Text(
+                                text = "感谢Google和JetBrains团队开发并维护了这些优秀的开源工具。",
+                                style = MaterialTheme.typography.bodySmall,
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+                    }
+                }
+            }
         }
     }
 }
 
+/**
+ * 一个用于在"关于"页面中显示技术栈项目的可复用组件。
+ */
+@Composable
+private fun AcknowledgementItem(icon: ImageVector, title: String, description: String) {
+    Row(verticalAlignment = Alignment.Top) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.secondary,
+            modifier = Modifier.padding(top = 4.dp)
+        )
+        Spacer(modifier = Modifier.width(16.dp))
+        Column {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold
+            )
+            Text(
+                text = description,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
