@@ -44,11 +44,15 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import android.content.Intent
 import android.net.Uri
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.material.icons.outlined.Calculate
 import androidx.compose.material.icons.outlined.Code
+import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Palette
 import androidx.compose.material.icons.outlined.Route
 import androidx.compose.material.icons.outlined.Tune
+import androidx.compose.material.icons.outlined.WatchLater
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathFillType.Companion.NonZero
 import androidx.compose.ui.graphics.SolidColor
@@ -61,6 +65,7 @@ import com.nekolaska.hificalculator.ui.theme.HiFiCalculatorTheme
 import kotlin.math.log10
 import kotlin.math.pow
 import kotlin.math.sqrt
+import androidx.core.net.toUri
 
 // --- INTERFACES & ENUMS ---
 interface Labeled {
@@ -152,6 +157,14 @@ fun HiFiCalculatorApp() {
                 CalculatorItem("audio_file_size", "音频文件大小/码率", Icons.Outlined.SdStorage),
                 CalculatorItem("buffer_latency", "音频缓冲延迟", Icons.Outlined.Schedule)
             )
+        ),
+        CalculatorCategory(
+            title = "时钟与数字信号",
+            items = listOf(
+                CalculatorItem("ppm_calculator", "晶振精度 (PPM) 偏差", Icons.Outlined.Timer),
+                CalculatorItem("dsd_calculator", "DSD 频率换算", Icons.Outlined.GraphicEq),
+                CalculatorItem("sample_period", "采样周期 (时间域)", Icons.Outlined.WatchLater)
+            )
         )
     )
 
@@ -172,6 +185,11 @@ fun HiFiCalculatorApp() {
         composable("buffer_latency") { BufferLatencyScreen(navController) }
         composable("wavelength") { WavelengthCalculatorScreen(navController) }
         composable("btl_power") { BtlPowerCalculatorScreen(navController) }
+
+        // --- 新增时钟相关路由 ---
+        composable("ppm_calculator") { PpmCalculatorScreen(navController) }
+        composable("dsd_calculator") { DsdCalculatorScreen(navController) }
+        composable("sample_period") { SamplePeriodScreen(navController) }
 
         // <-- 2. 新增"关于"页面的导航路由 -->
         composable("about") { AboutScreen(navController) }
@@ -336,7 +354,7 @@ fun AboutScreen(navController: NavController) {
                         fontWeight = FontWeight.Bold
                     )
                     Text(
-                        text = "Version 1.1.0",
+                        text = "Version 1.1.1",
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -358,7 +376,7 @@ fun AboutScreen(navController: NavController) {
             item {
                 Card(
                     onClick = {
-                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(githubUrl))
+                        val intent = Intent(Intent.ACTION_VIEW, githubUrl.toUri())
                         context.startActivity(intent)
                     },
                     modifier = Modifier.fillMaxWidth()
@@ -758,66 +776,292 @@ fun BtlPowerCalculatorScreen(navController: NavController) {
     }
 }
 
-
-// --- EXISTING CALCULATOR SCREENS ---
 @Composable
 fun PowerImpedanceVoltageScreen(navController: NavController) {
+    // 状态管理
     var vStr by remember { mutableStateOf("") }
     var rStr by remember { mutableStateOf("") }
     var pStr by remember { mutableStateOf("") }
-    var lastEdited by remember { mutableStateOf<String?>(null) }
+
     var voltageUnit by remember { mutableStateOf(VoltageUnit.Vrms) }
     var powerUnit by remember { mutableStateOf(PowerUnit.W) }
 
-    LaunchedEffect(vStr, rStr, pStr, voltageUnit, powerUnit) {
+    // 用于显示错误或提示信息
+    val context = androidx.compose.ui.platform.LocalContext.current
+    fun showToast(msg: String) {
+        android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
+    }
+
+    // 核心计算逻辑
+    fun calculate() {
+        // 1. 获取输入并转换为基础单位 (Vrms, Ohms, Watts)
         val vInput = vStr.toDoubleOrNull()
         val rInput = rStr.toDoubleOrNull()
         val pInput = pStr.toDoubleOrNull()
 
-        if (lastEdited != "P" && vInput != null && rInput != null && rInput > 0) {
-            val vrms = if (voltageUnit == VoltageUnit.Vpp) vInput / (2 * sqrt(2.0)) else vInput
-            val powerInW = vrms.pow(2) / rInput
-            val powerResult = if (powerUnit == PowerUnit.mW) powerInW * 1000 else powerInW
-            pStr = String.format("%.4f", powerResult)
-        } else if (lastEdited != "V" && pInput != null && rInput != null && rInput > 0) {
-            val powerInW = if (powerUnit == PowerUnit.mW) pInput / 1000 else pInput
-            val vrms = sqrt(powerInW * rInput)
-            val voltageResult = if (voltageUnit == VoltageUnit.Vpp) vrms * 2 * sqrt(2.0) else vrms
-            vStr = String.format("%.4f", voltageResult)
-        } else if (lastEdited != "R" && vInput != null && pInput != null && pInput > 0) {
-            val vrms = if (voltageUnit == VoltageUnit.Vpp) vInput / (2 * sqrt(2.0)) else vInput
-            val powerInW = if (powerUnit == PowerUnit.mW) pInput / 1000 else pInput
-            if (powerInW > 0) {
-                val resistance = vrms.pow(2) / powerInW
-                rStr = String.format("%.2f", resistance)
+        // 基础单位转换逻辑
+        val vBase = if (vInput != null) {
+            if (voltageUnit == VoltageUnit.Vpp) vInput / (2 * sqrt(2.0)) else vInput
+        } else null
+
+        val pBase = if (pInput != null) {
+            if (powerUnit == PowerUnit.mW) pInput / 1000.0 else pInput
+        } else null
+
+        // 2. 判断计算路径 (输入了哪两个值？)
+        if (vBase != null && rInput != null) {
+            // 已知 电压 & 阻抗 -> 计算 功率
+            val pResultBase = vBase.pow(2) / rInput
+            // 转换回显示单位
+            val pResult = if (powerUnit == PowerUnit.mW) pResultBase * 1000.0 else pResultBase
+            pStr = String.format("%.4f", pResult)
+
+        } else if (pBase != null && rInput != null) {
+            // 已知 功率 & 阻抗 -> 计算 电压
+            val vResultBase = sqrt(pBase * rInput)
+            // 转换回显示单位
+            val vResult =
+                if (voltageUnit == VoltageUnit.Vpp) vResultBase * 2 * sqrt(2.0) else vResultBase
+            vStr = String.format("%.4f", vResult)
+
+        } else if (vBase != null && pBase != null) {
+            // 已知 电压 & 功率 -> 计算 阻抗
+            if (pBase > 0) {
+                val rResult = vBase.pow(2) / pBase
+                rStr = String.format("%.2f", rResult)
+            } else {
+                showToast("功率不能为0")
             }
+        } else {
+            showToast("请输入任意两个数值以计算第三个")
         }
     }
 
+    fun clearAll() {
+        vStr = ""
+        rStr = ""
+        pStr = ""
+    }
+
     CalculatorScreen(navController, "功率/电压/阻抗") {
-        OutlinedTextField(
-            value = vStr,
-            onValueChange = { vStr = it; lastEdited = "V" },
-            label = { Text("电压") },
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
-        )
-        UnitSelector(voltageUnit.label, VoltageUnit.entries.toList()) { voltageUnit = it }
-        OutlinedTextField(
-            value = rStr,
-            onValueChange = {
-                rStr = it; lastEdited =
-                if (lastEdited == "P") "V" else "P"
-            },
-            label = { Text("阻抗 (Ohms)") },
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
-        )
-        OutlinedTextField(
-            value = pStr,
-            onValueChange = { pStr = it; lastEdited = "P" },
-            label = { Text("功率") },
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
-        )
-        UnitSelector(powerUnit.label, PowerUnit.entries.toList()) { powerUnit = it }
+        // 顶部提示卡片
+        ElevatedCard(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.elevatedCardColors(
+                containerColor = MaterialTheme.colorScheme.secondaryContainer
+            )
+        ) {
+            Row(
+                modifier = Modifier.padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    Icons.Outlined.Info,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSecondaryContainer
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "输入任意两项，点击计算按钮得出第三项。",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer
+                )
+            }
+        }
+
+        // 输入区域容器
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surface
+            ),
+            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(20.dp)
+            ) {
+                // --- 电压输入 ---
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            "电压 (Voltage)",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        // 紧凑型单位选择器
+                        CompactUnitSwitch(
+                            options = VoltageUnit.entries,
+                            selected = voltageUnit,
+                            onSelected = { voltageUnit = it; calculate() } // 切换单位时尝试重新计算
+                        )
+                    }
+                    OutlinedTextField(
+                        value = vStr,
+                        onValueChange = { vStr = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        placeholder = { Text("输入电压...") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        singleLine = true,
+                        trailingIcon = {
+                            Text(
+                                voltageUnit.label,
+                                modifier = Modifier.padding(end = 12.dp),
+                                color = MaterialTheme.colorScheme.outline
+                            )
+                        }
+                    )
+                }
+
+                // --- 阻抗输入 ---
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        "阻抗 (Impedance)",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    OutlinedTextField(
+                        value = rStr,
+                        onValueChange = { rStr = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        placeholder = { Text("输入阻抗...") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        singleLine = true,
+                        trailingIcon = {
+                            Text(
+                                "Ohms",
+                                modifier = Modifier.padding(end = 12.dp),
+                                color = MaterialTheme.colorScheme.outline
+                            )
+                        }
+                    )
+                }
+
+                // --- 功率输入 ---
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            "功率 (Power)",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        // 紧凑型单位选择器
+                        CompactUnitSwitch(
+                            options = PowerUnit.entries,
+                            selected = powerUnit,
+                            onSelected = { powerUnit = it; calculate() } // 切换单位时尝试重新计算
+                        )
+                    }
+                    OutlinedTextField(
+                        value = pStr,
+                        onValueChange = { pStr = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        placeholder = { Text("输入功率...") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        singleLine = true,
+                        trailingIcon = {
+                            Text(
+                                powerUnit.label,
+                                modifier = Modifier.padding(end = 12.dp),
+                                color = MaterialTheme.colorScheme.outline
+                            )
+                        }
+                    )
+                }
+            }
+        }
+
+        // 按钮区域
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            OutlinedButton(
+                onClick = { clearAll() },
+                modifier = Modifier.weight(1f),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.error)
+            ) {
+                Icon(
+                    Icons.Outlined.Delete,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.error
+                )
+                Spacer(Modifier.width(8.dp))
+                Text("清空", color = MaterialTheme.colorScheme.error)
+            }
+
+            Button(
+                onClick = { calculate() },
+                modifier = Modifier.weight(2f)
+            ) {
+                Icon(Icons.Outlined.Calculate, contentDescription = null)
+                Spacer(Modifier.width(8.dp))
+                Text("计算")
+            }
+        }
+    }
+}
+
+// 辅助组件：紧凑的单位切换器
+@Composable
+fun <T : Labeled> CompactUnitSwitch(
+    options: List<T>,
+    selected: T,
+    onSelected: (T) -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .height(32.dp)
+            .padding(0.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        options.forEachIndexed { index, option ->
+            val isSelected = option == selected
+            val containerColor =
+                if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface
+            val contentColor =
+                if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
+            val border = if (isSelected) null else BorderStroke(
+                1.dp,
+                MaterialTheme.colorScheme.outlineVariant
+            )
+
+            Surface(
+                onClick = { onSelected(option) },
+                shape = when (index) {
+                    0 -> androidx.compose.foundation.shape.RoundedCornerShape(
+                        topStart = 8.dp,
+                        bottomStart = 8.dp
+                    )
+
+                    options.size - 1 -> androidx.compose.foundation.shape.RoundedCornerShape(
+                        topEnd = 8.dp,
+                        bottomEnd = 8.dp
+                    )
+
+                    else -> androidx.compose.ui.graphics.RectangleShape
+                },
+                color = containerColor,
+                border = border,
+                modifier = Modifier.wrapContentWidth()
+            ) {
+                Text(
+                    text = option.label,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = contentColor,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                )
+            }
+        }
     }
 }
 
@@ -1184,5 +1428,263 @@ fun DbCombinationScreen(navController: NavController) {
             "合成后总声压级: ${String.format("%.2f", totalDb)} dB",
             style = MaterialTheme.typography.headlineSmall
         )
+    }
+}
+
+// --- NEW CLOCK CALCULATORS ---
+
+@Composable
+fun PpmCalculatorScreen(navController: NavController) {
+    var frequencyStr by remember { mutableStateOf("10000000") } // 默认 10MHz (常见外部时钟)
+    var ppmStr by remember { mutableStateOf("1.0") }
+
+    val results by remember(frequencyStr, ppmStr) {
+        derivedStateOf {
+            val freq = frequencyStr.toDoubleOrNull() ?: 0.0
+            val ppm = ppmStr.toDoubleOrNull() ?: 0.0
+
+            if (freq > 0) {
+                val deviationHz = freq * (ppm / 1_000_000.0)
+                // 一天有 86400 秒
+                val secondsPerDayError = 86400.0 * (ppm / 1_000_000.0)
+                Pair(deviationHz, secondsPerDayError)
+            } else {
+                Pair(0.0, 0.0)
+            }
+        }
+    }
+
+    CalculatorScreen(navController, "晶振精度 (PPM) 偏差") {
+        ElevatedCard(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text(
+                    text = "PPM (百万分率) 是衡量晶振精度的单位。HiFi设备中常见的 TCXO 为 1-10ppm，OCXO 可达 0.1ppm 甚至更低。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer
+                )
+            }
+        }
+
+        OutlinedTextField(
+            value = frequencyStr,
+            onValueChange = { frequencyStr = it },
+            label = { Text("基准频率 (Hz)") },
+            placeholder = { Text("例如 44100 或 10000000") },
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        OutlinedTextField(
+            value = ppmStr,
+            onValueChange = { ppmStr = it },
+            label = { Text("精度 (± PPM)") },
+            placeholder = { Text("例如 0.5") },
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text("频率最大偏差:", style = MaterialTheme.typography.labelLarge)
+                Text(
+                    text = "± ${String.format("%.4f", results.first)} Hz",
+                    style = MaterialTheme.typography.headlineSmall,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Divider(modifier = Modifier.padding(vertical = 8.dp))
+                Text("时间累积误差 (每天):", style = MaterialTheme.typography.labelLarge)
+                Text(
+                    text = "± ${String.format("%.4f", results.second)} 秒",
+                    style = MaterialTheme.typography.titleMedium
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun DsdCalculatorScreen(navController: NavController) {
+    // 基础倍率
+    val multipliers = listOf("64", "128", "256", "512", "1024")
+    var selectedMultiplier by remember { mutableStateOf(multipliers[0]) }
+
+    // 基准频率 (44.1k vs 48k)
+    var isBase48k by remember { mutableStateOf(false) }
+
+    val results by remember(selectedMultiplier, isBase48k) {
+        derivedStateOf {
+            val base = if (isBase48k) 48000.0 else 44100.0
+            val mult = selectedMultiplier.toIntOrNull() ?: 64
+
+            val dsdRateHz = base * 64 * (mult / 64.0) // DSD64 = 64 * 44.1k
+            val mhz = dsdRateHz / 1_000_000.0
+            val relativeToCd = (dsdRateHz / 44100.0) / 16.0 * 16.0 // 简化为总数据量对比
+            // CD = 44.1k * 16bit = 705.6 kbps (mono)
+            // DSD64 = 2.8224 MHz * 1bit = 2822.4 kbps (mono)
+            // Ratio = 4
+            val ratio = dsdRateHz / (44100.0 * 16.0) // 对比 CD 16bit PCM 的数据流
+
+            Triple(dsdRateHz, mhz, ratio)
+        }
+    }
+
+    CalculatorScreen(navController, "DSD 频率换算") {
+        Text("DSD 规格", style = MaterialTheme.typography.titleMedium)
+
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+            multipliers.forEach { m ->
+                FilterChip(
+                    selected = selectedMultiplier == m,
+                    onClick = { selectedMultiplier = m },
+                    label = { Text("DSD$m") }
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("基准采样率:")
+            Spacer(modifier = Modifier.width(8.dp))
+            Switch(checked = isBase48k, onCheckedChange = { isBase48k = it })
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(if (isBase48k) "48 kHz (DVD/TV)" else "44.1 kHz (CD)")
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(
+                modifier = Modifier.padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text("时钟频率", style = MaterialTheme.typography.labelLarge)
+                Text(
+                    text = "${String.format("%.4f", results.second)} MHz",
+                    style = MaterialTheme.typography.displayMedium,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Text(
+                    text = "= ${String.format("%,.0f", results.first)} Hz",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun SamplePeriodScreen(navController: NavController) {
+    var sampleRateStr by remember { mutableStateOf("44100") }
+
+    val results by remember(sampleRateStr) {
+        derivedStateOf {
+            val rate = sampleRateStr.toDoubleOrNull() ?: 0.0
+            if (rate > 0) {
+                val periodSec = 1.0 / rate
+                val us = periodSec * 1_000_000.0 // 微秒
+                val ns = periodSec * 1_000_000_000.0 // 纳秒
+                // 光在这么短时间内走的距离 (光速 ~30cm/ns)
+                val lightDistM = periodSec * 299_792_458.0
+                Triple(us, ns, lightDistM)
+            } else {
+                Triple(0.0, 0.0, 0.0)
+            }
+        }
+    }
+
+    CalculatorScreen(navController, "采样周期 (时间域)") {
+        ElevatedCard(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer)
+        ) {
+            Row(
+                modifier = Modifier.padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    Icons.Outlined.Info,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onTertiaryContainer
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "此工具将频率转换为时间间隔。在高采样率下，留给DAC处理和时钟对齐的时间窗口极短。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onTertiaryContainer
+                )
+            }
+        }
+
+        OutlinedTextField(
+            value = sampleRateStr,
+            onValueChange = { sampleRateStr = it },
+            label = { Text("采样率 (Hz)") },
+            placeholder = { Text("例如 44100, 96000, 192000") },
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        // 常用预设快捷按钮
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+            listOf("44100", "48000", "96000", "192000").forEach { rate ->
+                TextButton(onClick = { sampleRateStr = rate }) {
+                    Text("${rate.toInt() / 1000}k")
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text("微秒 (μs):")
+                    Text(
+                        String.format("%.4f", results.first),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+                Divider()
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text("纳秒 (ns):")
+                    Text(
+                        String.format("%.2f", results.second),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+                Divider()
+                Column {
+                    Text("在此周期内，光/电仅能传播:", style = MaterialTheme.typography.labelMedium)
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        "${String.format("%.2f", results.third)} 米",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.secondary
+                    )
+                }
+            }
+        }
     }
 }
